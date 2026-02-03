@@ -15,13 +15,18 @@ deck.initialize({
   margin: 0.1,
 
   // Center slides on the screen
-  center: false,
+  center: true,
+
+  // Number of slides away from the current that are visible (increase for overview)
+  viewDistance: 10,
 
   // Enable slide navigation via hash
   hash: true,
 
   // Enable keyboard shortcuts
-  keyboard: true,
+  keyboard: {
+    39: null, // Disable default right arrow - we'll handle it ourselves
+  },
 
   // Enable touch navigation on mobile devices
   touch: true,
@@ -66,17 +71,78 @@ deck.initialize({
   rollingLinks: false,
 
   // Plugins
-  plugins: [Notes, Markdown]
+  plugins: [Notes]
 }).then(() => {
   // Blood drip transition effect - initialize after Reveal is ready
   let bloodDripPlaying = false;
+  let isInOverview = false;
   const bloodDrip = document.querySelector('.blood-drip');
 
-  // Override keyboard and click navigation when on title slide
-  deck.addKeyBinding({ keyCode: 39, key: 'ArrowRight' }, () => {
+  // Cached configuration objects for different modes to avoid
+  // repeatedly creating new configuration literals and reconfiguring
+  // the deck unnecessarily.
+  const overviewModeConfig = {
+    center: true,
+    transition: 'none',
+    backgroundTransition: 'none',
+    transitionSpeed: 'fast'
+  };
+
+  const normalModeConfig = {
+    transition: 'slide',
+    backgroundTransition: 'fade',
+    transitionSpeed: 'default'
+  };
+
+  let currentConfigMode = 'normal';
+
+  function applyDeckConfig(mode) {
+    if (mode === currentConfigMode) {
+      return;
+    }
+    currentConfigMode = mode;
+    if (mode === 'overview') {
+      deck.configure(overviewModeConfig);
+    } else if (mode === 'normal') {
+      deck.configure(normalModeConfig);
+    }
+  }
+
+  // Track when overview mode is active
+  deck.on('overviewshown', () => {
+    isInOverview = true;
+    // Disable all transitions in overview mode
+    applyDeckConfig('overview');
+  });
+
+  deck.on('overviewhidden', () => {
+    isInOverview = false;
+    // Re-enable transitions when exiting overview
+    applyDeckConfig('normal');
+  });
+
+  // Custom keyboard handler that intercepts arrow right on title slide
+  // Must use 'keydown' with capture phase to intercept before Reveal.js
+  document.addEventListener('keydown', (event) => {
+    // Only handle arrow right key
+    if (event.keyCode !== 39 && event.key !== 'ArrowRight') {
+      return;
+    }
+
+    // Don't intercept in overview mode
+    if (isInOverview) {
+      // Manually trigger right navigation since we disabled default
+      deck.right();
+      return;
+    }
+
     const currentSlide = deck.getCurrentSlide();
 
-    if (currentSlide.classList.contains('title-slide') && !bloodDripPlaying) {
+    if (currentSlide && currentSlide.classList.contains('title-slide') && !bloodDripPlaying) {
+      // Prevent default navigation
+      event.preventDefault();
+      event.stopPropagation();
+
       bloodDripPlaying = true;
 
       // Trigger blood drip animation
@@ -88,19 +154,22 @@ deck.initialize({
         bloodDripPlaying = false;
         deck.right();
       }, 3500);
+    } else {
+      // For all other slides, manually trigger right navigation
+      deck.right();
+    }
+  }, true); // Use capture phase to run before Reveal.js handlers
 
-      return false; // Prevent default navigation
+  // Also handle click/touch navigation on title slide (but not in overview)
+  deck.on('click', (event) => {
+    // Don't trigger blood drip if clicking in overview mode
+    if (isInOverview) {
+      return;
     }
 
-    // Normal navigation for other slides
-    deck.right();
-  });
-
-  // Also handle click/touch navigation on title slide
-  deck.on('click', (event) => {
     const currentSlide = deck.getCurrentSlide();
 
-    if (currentSlide.classList.contains('title-slide') && !bloodDripPlaying) {
+    if (currentSlide && currentSlide.classList.contains('title-slide') && !bloodDripPlaying) {
       const clickX = event.clientX;
       const windowWidth = window.innerWidth;
 
